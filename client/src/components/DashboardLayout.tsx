@@ -29,14 +29,14 @@ import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Painel Principal", path: "/dashboard" },
-  { icon: FileText, label: "Preencher Formulário", path: "/forms/new" },
+  { icon: FileText, label: "Cadastro OAB INSS", path: "/forms/new" },
   { icon: CalendarDays, label: "Meus Agendamentos", path: "/my-appointments" },
   { icon: MessageSquare, label: "Mensagens", path: "/messages" },
 ];
 
 const adminMenuItems = [
   { icon: LayoutDashboard, label: "Painel Principal", path: "/admin" },
-  { icon: FileText, label: "Gestão de Formulários", path: "/admin/forms" },
+  { icon: FileText, label: "Cadastros INSS TCMS", path: "/admin/forms" },
   { icon: CalendarDays, label: "Calendário", path: "/admin/calendar" },
   { icon: ClipboardList, label: "Atendimentos do Dia", path: "/admin/daily" },
   { icon: MessageSquare, label: "Mensagens", path: "/messages" },
