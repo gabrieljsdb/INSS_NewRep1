@@ -65,6 +65,7 @@ export async function upsertUser(user: Omit<InsertUser, 'id'>): Promise<void> {
       orgaoRg: user.orgaoRg,
       dataExpedicaoRg: user.dataExpedicaoRg,
       loginMethod: user.loginMethod,
+      passwordHash: (user as any).passwordHash,
     };
 
     const updateSet: Record<string, unknown> = {
@@ -83,6 +84,8 @@ export async function upsertUser(user: Omit<InsertUser, 'id'>): Promise<void> {
       rg: user.rg,
       orgaoRg: user.orgaoRg,
       dataExpedicaoRg: user.dataExpedicaoRg,
+      passwordHash: (user as any).passwordHash,
+      loginMethod: user.loginMethod,
     };
 
     if (user.lastSignedIn !== undefined) {

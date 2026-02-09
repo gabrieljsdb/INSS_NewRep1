@@ -27,6 +27,7 @@ import {
 import { eq, and, gte, lte, asc, desc, ne, sql } from "drizzle-orm";
 import { users, appointments, blockedSlots, appointmentMessages, emailTemplates, userForms, formAttachments } from "../drizzle/schema.js";
 import { soapAuthService } from "./services/soapAuthService.js";
+import { localAuthService } from "./services/localAuthService.js";
 import { appointmentValidationService } from "./services/appointmentValidationService.js";
 import { emailService } from "./services/emailService.js";
 import { documentService } from "./services/documentService.js";
@@ -197,11 +198,32 @@ export const appRouter = router({
 
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      const { maxAge, ...clearOptions } = cookieOptions;
+      ctx.res.clearCookie(COOKIE_NAME, clearOptions);
       return {
         success: true,
       } as const;
     }),
+
+    createLocalUser: adminProcedure
+      .input(z.object({
+        cpf: z.string().min(1, "CPF obrigatório"),
+        name: z.string().min(1, "Nome obrigatório"),
+        email: z.string().email("E-mail inválido"),
+        password: z.string().min(6, "Senha deve ter no mínimo 6 caracteres"),
+        role: z.enum(["user", "admin"]),
+        oab: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await localAuthService.createLocalUser(input);
+        if (!result.success) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: result.message,
+          });
+        }
+        return result;
+      }),
 
     loginWithSOAP: publicProcedure
       .input(
@@ -212,19 +234,21 @@ export const appRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         try {
-          const soapResult = await soapAuthService.authenticate(input.cpf, input.password);
+          // Usa autenticação com fallback (SOAP -> Local)
+          const authResult = await localAuthService.authenticateWithFallback(input.cpf, input.password);
 
-          if (!soapResult.success || !soapResult.userData) {
+          if (!authResult.success || !authResult.userData) {
             throw new TRPCError({
               code: "UNAUTHORIZED",
-              message: soapResult.message || "Credenciais inválidas",
+              message: authResult.message || "Credenciais inválidas",
             });
           }
 
-          const userData = soapResult.userData;
+          const userData = authResult.userData;
           const statusInadimplente = (userData as any).Inadimplente;
 
-          if (statusInadimplente && statusInadimplente.trim() === 'Sim') {
+          // Só valida inadimplência se for login via SOAP (OAB)
+          if (authResult.authMethod === 'soap' && statusInadimplente && statusInadimplente.trim() === 'Sim') {
               throw new TRPCError({
                   code: 'UNAUTHORIZED',
                   message: 'Acesso negado: Regularize sua situação com a OAB'
@@ -235,7 +259,7 @@ export const appRouter = router({
           const { upsertUser } = await import("./db.js");
           
           const userPayload = {
-            openId: `soap_${userData.cpf}`,
+            openId: authResult.authMethod === 'soap' ? `soap_${userData.cpf}` : `local_${userData.cpf}`,
             cpf: userData.cpf,
             oab: userData.oab,
             name: userData.nome,
@@ -250,7 +274,8 @@ export const appRouter = router({
             rg: userData.rg,
             orgaoRg: userData.orgao_rg,
             dataExpedicaoRg: userData.data_expedicao_rg,
-            loginMethod: "soap",
+            loginMethod: authResult.authMethod === 'soap' ? "soap" : (user?.loginMethod || "local_admin"),
+            role: user?.role, // Preserva a role se o usuário já existir
             lastSignedIn: new Date(),
           };
 
@@ -278,9 +303,10 @@ export const appRouter = router({
 
           await logAuditAction({
             userId: user.id,
-            action: "LOGIN_SOAP",
+            action: authResult.authMethod === 'soap' ? "LOGIN_SOAP" : "LOGIN_LOCAL_FALLBACK",
             entityType: "user",
             entityId: user.id,
+            details: `Método: ${authResult.authMethod}`,
             ipAddress: ctx.req.ip,
           });
 

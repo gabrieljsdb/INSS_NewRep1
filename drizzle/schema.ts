@@ -37,6 +37,7 @@ export const users = mysqlTable(
     role: mysqlEnum("ROLE", ["user", "admin"]).default("user").notNull(),
     isActive: boolean("ISACTIVE").default(true).notNull(),
     loginMethod: varchar("LOGINMETHOD", { length: 64 }),
+    passwordHash: varchar("PASSWORD_HASH", { length: 255 }),
     createdAt: timestamp("CREATEDAT").defaultNow().notNull(),
     updatedAt: timestamp("UPDATEDAT").defaultNow().onUpdateNow().notNull(),
     lastSignedIn: timestamp("LASTSIGNEDIN").defaultNow().notNull(),
