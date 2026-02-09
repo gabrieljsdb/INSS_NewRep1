@@ -23,7 +23,7 @@ services:
       - VITE_MANUS_HOST_DEV=false
       
       # Configurações SOAP (ajuste conforme necessário)
-      - SOAP_AUTH_URL=${SOAP_AUTH_URL:-https://api.oabsc.org.br/soap/auth}
+      - SOAP_AUTH_URL=${SOAP_AUTH_URL:-https://api.oab-sc.org.br/soap/auth}
       
       # NOTA: Configurações de e-mail (SMTP e admin emails) agora são gerenciadas
       # pelo painel administrativo do sistema. Acesse /admin/settings para configurar.

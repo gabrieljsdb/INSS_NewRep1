@@ -15,6 +15,7 @@ COPY package.json pnpm-lock.yaml ./
 COPY patches ./patches
 
 # Instalar dependências
+RUN apk add --no-cache libreoffice openjdk11-jre ttf-dejavu fontconfig zip unzip
 RUN pnpm install --no-frozen-lockfile
 
 # Copiar todo o código fonte

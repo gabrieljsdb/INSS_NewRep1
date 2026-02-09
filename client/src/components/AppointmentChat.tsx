@@ -110,7 +110,7 @@ export function AppointmentChat({ appointmentId, isAdmin = false }: AppointmentC
                           {msg.isAdmin ? "Administrador" : "Usuário"}
                         </span>
                       </div>
-                      <p className="text-sm leading-relaxed break-words">{msg.content || msg.message}</p>
+                      <p className="text-sm leading-relaxed break-words">{msg.message}</p>
                       <p
                         className={`text-[10px] mt-1 text-right opacity-70`}
                       >

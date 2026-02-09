@@ -11,6 +11,8 @@ import {
   systemSettings,
   emailTemplates,
   appointmentMessages,
+  userForms,
+  formAttachments,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -498,6 +500,65 @@ export async function getEmailTemplates() {
   return await db.select().from(emailTemplates);
 }
 
+/**
+ * USER FORMS - Gerenciamento de formulários
+ */
+
+export async function createUserForm(data: typeof userForms.$inferInsert) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [result] = await db.insert(userForms).values(data);
+  return (result as any).insertId as number;
+}
+
+export async function getUserForm(formId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db.select().from(userForms).where(eq(userForms.id, formId)).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function getUserFormsByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db.select().from(userForms).where(eq(userForms.userId, userId)).orderBy(desc(userForms.createdAt));
+}
+
+export async function getAllUserForms() {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db.select().from(userForms).orderBy(desc(userForms.createdAt));
+}
+
+export async function updateUserFormStatus(formId: number, status: "draft" | "submitted" | "approved" | "rejected") {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db.update(userForms).set({ status, submittedAt: status === "submitted" ? new Date() : undefined }).where(eq(userForms.id, formId));
+}
+
+/**
+ * FORM ATTACHMENTS - Gerenciamento de anexos
+ */
+
+export async function createFormAttachment(data: typeof formAttachments.$inferInsert) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db.insert(formAttachments).values(data);
+}
+
+export async function getFormAttachments(formId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db.select().from(formAttachments).where(eq(formAttachments.formId, formId));
+}
+
 export async function getEmailTemplateBySlug(slug: string) {
   const db = await getDb();
   if (!db) return null;
@@ -571,4 +632,32 @@ export async function seedEmailTemplates() {
       await upsertEmailTemplate(t);
     }
   }
+}
+
+/**
+ * Atualiza agendamentos confirmados para "no_show" se passarem 24 horas da data agendada
+ */
+export async function updateNoShowStatus() {
+  const db = await getDb();
+  if (!db) return { updated: 0 };
+
+  const twentyFourHoursAgo = new Date();
+  twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+
+  const result = await db
+    .update(appointments)
+    .set({ status: "no_show" })
+    .where(
+      and(
+        eq(appointments.status, "confirmed"),
+        lte(appointments.appointmentDate, twentyFourHoursAgo)
+      )
+    );
+
+  const updatedCount = (result as any).affectedRows || 0;
+  if (updatedCount > 0) {
+    console.log(`[Database] ${updatedCount} agendamentos atualizados para 'no_show'.`);
+  }
+  
+  return { updated: updatedCount };
 }

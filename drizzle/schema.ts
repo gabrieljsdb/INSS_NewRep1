@@ -209,5 +209,58 @@ export const appointmentMessages = mysqlTable("appointment_messages", {
   appointmentIdx: index("appointment_idx").on(table.appointmentId),
 }));
 
+/**
+ * USER_FORMS TABLE - Formulários preenchidos pelos usuários
+ */
+export const userForms = mysqlTable("user_forms", {
+  id: int("ID").autoincrement().primaryKey(),
+  userId: int("USERID").notNull(),
+  // Dados extraídos/confirmados
+  name: text("NAME").notNull(),
+  cpf: varchar("CPF", { length: 14 }).notNull(),
+  email: varchar("EMAIL", { length: 320 }).notNull(),
+  oab: varchar("OAB", { length: 20 }).notNull(),
+  phone: varchar("PHONE", { length: 20 }),
+  address: text("ADDRESS"),
+  nacionalidade: varchar("NACIONALIDADE", { length: 100 }),
+  rg: varchar("RG", { length: 20 }),
+  dataExpedicaoRg: varchar("DATAEXPEDICAORG", { length: 10 }),
+  orgaoRg: varchar("ORGAORG", { length: 50 }),
+  nomePai: text("NOMEPAI"),
+  nomeMae: text("NOMEMAE"),
+  cep: varchar("CEP", { length: 10 }),
+  bairro: varchar("BAIRRO", { length: 100 }),
+  cidade: varchar("CIDADE", { length: 100 }),
+  estado: varchar("ESTADO", { length: 2 }),
+  // Status do formulário
+  status: mysqlEnum("STATUS", ["draft", "submitted", "approved", "rejected"]).default("draft").notNull(),
+  registrationStatus: mysqlEnum("REGISTRATIONSTATUS", ["not_registered", "registered"]).default("not_registered").notNull(),
+  rejectionReason: text("REJECTIONREASON"),
+  submittedAt: timestamp("SUBMITTEDAT"),
+  createdAt: timestamp("CREATEDAT").defaultNow().notNull(),
+  updatedAt: timestamp("UPDATEDAT").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  userIdIdx: index("form_userId_idx").on(table.userId),
+  statusIdx: index("form_status_idx").on(table.status),
+}));
+
+/**
+ * FORM_ATTACHMENTS TABLE - Documentos anexados aos formulários
+ */
+export const formAttachments = mysqlTable("form_attachments", {
+  id: int("ID").autoincrement().primaryKey(),
+  formId: int("FORMID").notNull(),
+  fileName: varchar("FILENAME", { length: 255 }).notNull(),
+  fileUrl: text("FILEURL").notNull(),
+  fileType: varchar("FILETYPE", { length: 50 }).notNull(), // 'signed_doc_1', 'signed_doc_2', 'signed_doc_3', etc.
+  createdAt: timestamp("CREATEDAT").defaultNow().notNull(),
+}, (table) => ({
+  formIdIdx: index("formId_idx").on(table.formId),
+}));
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+export type UserForm = typeof userForms.$inferSelect;
+export type InsertUserForm = typeof userForms.$inferInsert;
+export type FormAttachment = typeof formAttachments.$inferSelect;
+export type InsertFormAttachment = typeof formAttachments.$inferInsert;

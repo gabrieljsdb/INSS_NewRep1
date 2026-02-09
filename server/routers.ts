@@ -16,9 +16,16 @@ import {
   getDb,
   updateUserPhone,
   getAppointmentsByDate,
+  createUserForm,
+  getUserForm,
+  getUserFormsByUserId,
+  getAllUserForms,
+  updateUserFormStatus,
+  createFormAttachment,
+  getFormAttachments,
 } from "./db.js";
 import { eq, and, gte, lte, asc, desc, ne, sql } from "drizzle-orm";
-import { users, appointments, blockedSlots, appointmentMessages, emailTemplates } from "../drizzle/schema.js";
+import { users, appointments, blockedSlots, appointmentMessages, emailTemplates, userForms, formAttachments } from "../drizzle/schema.js";
 import { soapAuthService } from "./services/soapAuthService.js";
 import { appointmentValidationService } from "./services/appointmentValidationService.js";
 import { emailService } from "./services/emailService.js";
@@ -74,7 +81,7 @@ export const appRouter = router({
         startTime: z.string(),
         endTime: z.string(),
         reason: z.string(),
-        phone: z.string(),
+        phone: z.string().min(1, "Telefone é obrigatório"),
         notes: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
@@ -299,7 +306,11 @@ export const appRouter = router({
   }),
 
   documents: router({
-    generateMyDocument: protectedProcedure.mutation(async ({ ctx }) => {
+    generateMyDocument: protectedProcedure
+      .input(z.object({ 
+        templateType: z.enum(['ANEXO_II', 'DECLARACAO_BOAS_PRATICAS', 'TERMO_ACEITE']) 
+      }))
+      .mutation(async ({ input, ctx }) => {
       try {
         const user = ctx.user;
         if (!user) throw new TRPCError({ code: "UNAUTHORIZED" });
@@ -307,35 +318,25 @@ export const appRouter = router({
         const fullUser = await getUserByCPF(user.cpf);
         if (!fullUser) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado" });
 
-        const soapUserData = {
-          nome: fullUser.name,
-          email: fullUser.email,
-          cep: fullUser.cep || '',
-          endereco: fullUser.endereco || '',
-          bairro: fullUser.bairro || '',
-          cidade: fullUser.cidade || '',
-          estado: fullUser.estado || '',
-          nome_mae: fullUser.nomeMae || '',
-          nome_pai: fullUser.nomePai || '',
-          cpf: fullUser.cpf,
-          rg: fullUser.rg || '',
-          oab: fullUser.oab,
-          orgao_rg: fullUser.orgaoRg || '',
-          data_expedicao_rg: fullUser.dataExpedicaoRg || '',
+        // Mapeia o nome do arquivo com base no template
+        const filenames: Record<string, string> = {
+          ANEXO_II: 'ANEXO_II_TCMS_modelo_OAB',
+          DECLARACAO_BOAS_PRATICAS: 'Declaração_de_boas_práticas',
+          TERMO_ACEITE: 'Termo_de_aceite_do_ACT'
         };
 
-        const buffer = await documentService.generateUserDocument(soapUserData);
+        const buffer = await documentService.generatePDF(input.templateType, fullUser);
         
         return {
-          filename: `Documento_${fullUser.name.replace(/\s+/g, '_')}.docx`,
+          filename: `${filenames[input.templateType]}_${fullUser.name.replace(/\s+/g, '_')}.pdf`,
           content: buffer.toString('base64'),
-          contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          contentType: 'application/pdf'
         };
       } catch (error) {
         console.error("[Documents] Erro ao gerar documento:", error);
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Erro ao gerar documento Word",
+          message: "Erro ao gerar documento PDF",
         });
       }
     })
@@ -370,8 +371,8 @@ export const appRouter = router({
 
         await db.insert(appointmentMessages).values({
           appointmentId: input.appointmentId,
-          userId: ctx.user.id,
-          content: input.content,
+          senderId: ctx.user.id,
+          message: input.content,
           isAdmin,
           isRead: false,
         });
@@ -394,7 +395,7 @@ export const appRouter = router({
             eq(appointmentMessages.isRead, false),
             isAdmin 
               ? sql`1=1` 
-              : eq(appointmentMessages.userId, ctx.user.id)
+              : eq(appointmentMessages.senderId, ctx.user.id)
           )
         )
         .limit(1);
@@ -509,7 +510,8 @@ export const appRouter = router({
           .where(
             and(
               gte(appointments.appointmentDate, startOfDay),
-              lte(appointments.appointmentDate, endOfDay)
+              lte(appointments.appointmentDate, endOfDay),
+              eq(appointments.status, "confirmed")
             )
           )
           .orderBy(asc(appointments.startTime));
@@ -916,6 +918,168 @@ export const appRouter = router({
           ipAddress: ctx.req.ip,
         });
 
+        return { success: true };
+      }),
+  }),
+
+  forms: router({
+    create: protectedProcedure
+      .input(z.object({
+        name: z.string(),
+        cpf: z.string(),
+        email: z.string(),
+        oab: z.string(),
+        phone: z.string().optional(),
+        address: z.string().optional(),
+        nacionalidade: z.string().optional(),
+        rg: z.string().optional(),
+        dataExpedicaoRg: z.string().optional(),
+        orgaoRg: z.string().optional(),
+        nomePai: z.string().optional(),
+        nomeMae: z.string().optional(),
+        cep: z.string().optional(),
+        bairro: z.string().optional(),
+        cidade: z.string().optional(),
+        estado: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        // Se um telefone foi fornecido no formulário, atualiza o cadastro permanente do usuário
+        if (input.phone) {
+          await updateUserPhone(ctx.user.id, input.phone);
+        }
+
+        const formId = await createUserForm({
+          userId: ctx.user.id,
+          ...input,
+          status: "draft",
+        });
+        return { success: true, id: formId };
+      }),
+
+    getMine: protectedProcedure.query(async ({ ctx }) => {
+      return await getUserFormsByUserId(ctx.user.id);
+    }),
+
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const form = await getUserForm(input.id);
+        if (!form) throw new TRPCError({ code: "NOT_FOUND" });
+        if (form.userId !== ctx.user.id && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "UNAUTHORIZED" });
+        }
+        const attachments = await getFormAttachments(input.id);
+        return { ...form, attachments };
+      }),
+
+    submit: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const form = await getUserForm(input.id);
+        if (!form || form.userId !== ctx.user.id) throw new TRPCError({ code: "UNAUTHORIZED" });
+        await updateUserFormStatus(input.id, "submitted");
+        return { success: true };
+      }),
+
+    addAttachment: protectedProcedure
+      .input(z.object({
+        formId: z.number(),
+        fileName: z.string(),
+        fileUrl: z.string(),
+        fileType: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const form = await getUserForm(input.formId);
+        if (!form || form.userId !== ctx.user.id) throw new TRPCError({ code: "UNAUTHORIZED" });
+        await createFormAttachment(input);
+        return { success: true };
+      }),
+
+    // Admin routes
+    getAll: adminProcedure.query(async () => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      
+      const results = await db
+        .select({
+          id: userForms.id,
+          name: userForms.name,
+          cpf: userForms.cpf,
+          email: userForms.email,
+          oab: userForms.oab,
+          status: userForms.status,
+          registrationStatus: userForms.registrationStatus,
+          submittedAt: userForms.submittedAt,
+          createdAt: userForms.createdAt,
+        })
+        .from(userForms)
+        .orderBy(desc(userForms.createdAt));
+        
+      return results;
+    }),
+
+    updateStatus: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        status: z.enum(["draft", "submitted", "approved", "rejected"]),
+        rejectionReason: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+        await db
+          .update(userForms)
+          .set({ 
+            status: input.status,
+            rejectionReason: input.status === "rejected" ? input.rejectionReason : null,
+            updatedAt: new Date()
+          })
+          .where(eq(userForms.id, input.id));
+
+        // Se for rejeitado, enviar e-mail
+        if (input.status === "rejected") {
+          const form = await getUserForm(input.id);
+          if (form) {
+            await emailService.sendEmail({
+              to: form.email,
+              subject: "Atualização sobre seu Formulário de Cadastramento TCMS",
+              body: `
+                <h2>Olá, ${form.name}</h2>
+                <p>Informamos que seu formulário de cadastramento foi analisado e <strong>não pôde ser aprovado</strong> neste momento.</p>
+                <p><strong>Motivo da Recusa:</strong></p>
+                <div style="background: #f8f9fa; padding: 15px; border-left: 4px solid #dc3545; margin: 10px 0;">
+                  ${input.rejectionReason || "Não especificado."}
+                </div>
+                <p>Por favor, acesse o sistema para realizar os ajustes necessários e enviar novamente.</p>
+                <br/>
+                <p>Atenciosamente,<br/>Equipe OAB/SC</p>
+              `,
+              type: "form_rejection"
+            });
+          }
+        }
+
+        return { success: true };
+      }),
+
+    updateRegistrationStatus: adminProcedure
+      .input(z.object({
+        id: z.number(),
+        registrationStatus: z.enum(["not_registered", "registered"]),
+      }))
+      .mutation(async ({ input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        
+        await db
+          .update(userForms)
+          .set({ 
+            registrationStatus: input.registrationStatus,
+            updatedAt: new Date()
+          })
+          .where(eq(userForms.id, input.id));
+          
         return { success: true };
       }),
   }),
