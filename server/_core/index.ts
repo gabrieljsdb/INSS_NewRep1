@@ -1,6 +1,8 @@
 import "dotenv/config";
 process.env.TZ = "America/Sao_Paulo";
 import express from "express";
+import path from "path";
+import fs from "fs";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -46,6 +48,14 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+
+  // Serve uploads directory
+  const uploadsDir = path.join(process.cwd(), "server/uploads");
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+  app.use("/uploads", express.static(uploadsDir));
+
   // tRPC API
   app.use(
     "/api/trpc",

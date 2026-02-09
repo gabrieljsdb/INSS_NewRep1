@@ -43,7 +43,7 @@ export default function UserForm() {
 
   // Queries e Mutations
   const createFormMutation = trpc.forms.create.useMutation();
-  const addAttachmentMutation = trpc.forms.addAttachment.useMutation();
+  const uploadFileMutation = trpc.forms.uploadFile.useMutation();
   const submitFormMutation = trpc.forms.submit.useMutation();
   const generateDocMutation = trpc.documents.generateMyDocument.useMutation();
 
@@ -137,6 +137,9 @@ export default function UserForm() {
   };
 
   const handleSubmit = async () => {
+    console.log("Iniciando submissão do formulário...");
+    console.log("Arquivos anexados:", attachments.length);
+    
     if (attachments.length < 3) {
       toast.error("Por favor, anexe os 3 documentos assinados");
       return;
@@ -145,25 +148,56 @@ export default function UserForm() {
     setIsSubmitting(true);
     try {
       // 1. Criar o formulário
+      console.log("Passo 1: Criando registro do formulário...");
       const form = await createFormMutation.mutateAsync(formData);
       const formId = form.id;
+      console.log("Formulário criado com ID:", formId);
 
+      // 2. Fazer upload real dos arquivos
+      console.log("Passo 2: Iniciando upload dos arquivos...");
       for (const att of attachments) {
-        await addAttachmentMutation.mutateAsync({
+        console.log(`Processando arquivo: ${att.file.name} (${att.type})`);
+        
+        // Converter arquivo para base64
+        const fileContent = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            const base64 = result.split(',')[1];
+            if (!base64) {
+              reject(new Error("Falha ao converter arquivo para Base64"));
+              return;
+            }
+            resolve(base64);
+          };
+          reader.onerror = () => reject(new Error("Erro na leitura do arquivo"));
+          reader.readAsDataURL(att.file);
+        });
+
+        console.log(`Enviando para o servidor: ${att.file.name}...`);
+        
+        // Upload do arquivo para o servidor local usando a mutation correta
+        const uploadResult = await uploadFileMutation.mutateAsync({
           formId,
           fileName: att.file.name,
-          fileUrl: "https://storage.exemplo.com/" + att.file.name, // Simulação
-          fileType: att.type
+          fileContent,
+          fileType: att.type,
+          contentType: att.file.type || 'application/pdf'
         });
+        
+        console.log(`Resposta do servidor para ${att.file.name}:`, uploadResult);
       }
 
       // 3. Finalizar envio
+      console.log("Passo 3: Finalizando envio do formulário...");
       await submitFormMutation.mutateAsync({ id: formId });
       
+      console.log("Sucesso total!");
       toast.success("Formulário enviado com sucesso!");
       navigate("/dashboard");
-    } catch (error) {
-      toast.error("Erro ao enviar formulário");
+    } catch (error: any) {
+      console.error("ERRO DETALHADO NO ENVIO:", error);
+      toast.error(`Erro ao enviar: ${error.message || "Erro desconhecido"}`);
     } finally {
       setIsSubmitting(false);
     }

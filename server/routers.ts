@@ -1007,6 +1007,48 @@ export const appRouter = router({
         return { success: true };
       }),
 
+    uploadFile: protectedProcedure
+      .input(z.object({
+        formId: z.number(),
+        fileName: z.string(),
+        fileContent: z.string(), // Base64 encoded file
+        fileType: z.string(),
+        contentType: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const form = await getUserForm(input.formId);
+        if (!form || form.userId !== ctx.user.id) throw new TRPCError({ code: "UNAUTHORIZED" });
+        
+        // Import node modules
+        const fs = await import("fs");
+        const path = await import("path");
+        
+        // Ensure directory exists
+        const dir = path.join(process.cwd(), "server/uploads", input.formId.toString());
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        
+        // Decode base64 and save to local filesystem
+        const fileBuffer = Buffer.from(input.fileContent, 'base64');
+        const fileName = `${Date.now()}_${input.fileName}`;
+        const filePath = path.join(dir, fileName);
+        fs.writeFileSync(filePath, fileBuffer);
+        
+        // Build local URL
+        const url = `/uploads/${input.formId}/${fileName}`;
+        
+        // Save attachment record with local URL
+        await createFormAttachment({
+          formId: input.formId,
+          fileName: input.fileName,
+          fileUrl: url,
+          fileType: input.fileType,
+        });
+        
+        return { success: true, url };
+      }),
+
     addAttachment: protectedProcedure
       .input(z.object({
         formId: z.number(),
